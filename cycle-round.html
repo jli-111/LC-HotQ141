@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fast and Slow Pointers</title>
+  <style>
+    body {
+      max-width: 640px;
+      margin: 40px auto;
+      padding: 0 20px;
+      font-family: system-ui, sans-serif;
+      color: #18212f;
+      background: #ffffff;
+    }
+    h1 { font-size: 24px; }
+    button { padding: 10px 18px; cursor: pointer; font: inherit; }
+    button:disabled { cursor: wait; }
+    svg { display: block; width: 100%; max-width: 440px; margin: auto; }
+    .node { fill: #f3f4f6; stroke: #9ca3af; }
+    .edge { stroke: #9ca3af; stroke-width: 2; }
+    text { fill: #18212f; font-size: 16px; text-anchor: middle; }
+    #slow-marker { fill: #2563eb; }
+    #fast-marker { fill: #ea580c; }
+    #status { min-height: 3em; }
+  </style>
+</head>
+<body>
+  <h1>Fast and Slow Pointers</h1>
+  <p>Blue circle: slower pace, one step. Orange square: faster pace, two steps.</p>
+  <button id="step-button">Next round</button>
+  <button id="reset-button">Reset</button>
+  <svg id="diagram" viewBox="0 0 400 400" role="img"
+       aria-label="A five-node cycle with moving fast and slow pointers">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ca3af"></path>
+      </marker>
+    </defs>
+    <g id="edges"></g>
+    <g id="nodes"></g>
+    <circle id="slow-marker" r="9"></circle>
+    <rect id="fast-marker" width="18" height="18"></rect>
+    <text x="200" y="195">Clockwise</text>
+    <text x="200" y="220">A → B → C → D → E → A</text>
+  </svg>
+  <p id="status" aria-live="polite"></p>
+
+  <script>
+    // PART 1: The simulation state.
+    // Node indices: A = 0, B = 1, C = 2, D = 3, E = 4.
+    const labels = ["A", "B", "C", "D", "E"];
+    const nodeCount = labels.length;
+    let slow = 0;
+    let fast = 0;
+    let round = 0;
+
+    const stepButton = document.getElementById("step-button");
+    const resetButton = document.getElementById("reset-button");
+    const status = document.getElementById("status");
+    const slowMarker = document.getElementById("slow-marker");
+    const fastMarker = document.getElementById("fast-marker");
+
+    // PART 2: Convert a position around the ring into screen coordinates.
+    // Fractional positions are allowed so movement can look smooth.
+    function pointOnRing(position, radius) {
+      const angle = (position / nodeCount) * 2 * Math.PI - Math.PI / 2;
+      return {
+        x: 200 + radius * Math.cos(angle),
+        y: 200 + radius * Math.sin(angle)
+      };
+    }
+
+    // SVG is the browser's format for drawing shapes.
+    function addShape(parentId, shapeName, attributes, text = "") {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", shapeName);
+      for (const name in attributes) {
+        shape.setAttribute(name, attributes[name]);
+      }
+      shape.textContent = text;
+      document.getElementById(parentId).appendChild(shape);
+    }
+
+    // Draw the five nodes and the arrows once.
+    for (let i = 0; i < nodeCount; i++) {
+      const here = pointOnRing(i, 125);
+      const next = pointOnRing(i + 1, 125);
+      const dx = next.x - here.x;
+      const dy = next.y - here.y;
+      const length = Math.hypot(dx, dy);
+
+      // Shorten the line so the arrow ends outside the node circle.
+      addShape("edges", "line", {
+        x1: here.x + dx / length * 23,
+        y1: here.y + dy / length * 23,
+        x2: next.x - dx / length * 25,
+        y2: next.y - dy / length * 25,
+        class: "edge",
+        "marker-end": "url(#arrow)"
+      });
+      addShape("nodes", "circle", { cx: here.x, cy: here.y, r: 22, class: "node" });
+      addShape("nodes", "text", { x: here.x, y: here.y + 5 }, labels[i]);
+    }
+
+    // Draw the pointers on separate tracks so both remain visible.
+    // The tracks are only a drawing aid; both pointers use the same nodes.
+    function drawPointers(slowPosition, fastPosition) {
+      const s = pointOnRing(slowPosition, 92);
+      const f = pointOnRing(fastPosition, 158);
+      slowMarker.setAttribute("cx", s.x);
+      slowMarker.setAttribute("cy", s.y);
+      fastMarker.setAttribute("x", f.x - 9);
+      fastMarker.setAttribute("y", f.y - 9);
+    }
+
+    function showStatus() {
+      status.textContent = `Round ${round}: slow is at ${labels[slow]}, fast is at ${labels[fast]}.`;
+      if (slow === fast) {
+        status.textContent += " They meet at the same node!";
+      }
+    }
+
+    // PART 3: Run one round when the user clicks the button.
+    function nextRound() {
+      const oldSlow = slow;
+      const oldFast = fast;
+
+      // These are the two core lines of the simulation.
+      slow = (slow + 1) % nodeCount;
+      fast = (fast + 2) % nodeCount;
+      round = round + 1;
+
+      stepButton.disabled = true;
+      resetButton.disabled = true;
+
+      // The remaining code only animates the movement between positions.
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const duration = reduceMotion ? 0 : 1200;
+      const startTime = performance.now();
+
+      function animate(now) {
+        const progress = duration === 0 ? 1 : Math.min((now - startTime) / duration, 1);
+        drawPointers(oldSlow + progress, oldFast + 2 * progress);
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          drawPointers(slow, fast);
+          showStatus();
+          stepButton.disabled = slow === fast;
+          resetButton.disabled = false;
+        }
+      }
+      requestAnimationFrame(animate);
+    }
+
+    // PART 4: Connect the buttons and show the initial state.
+    stepButton.addEventListener("click", nextRound);
+    resetButton.addEventListener("click", function () {
+      slow = 0;
+      fast = 0;
+      round = 0;
+      stepButton.disabled = false;
+      drawPointers(slow, fast);
+      showStatus();
+    });
+
+    drawPointers(slow, fast);
+    showStatus();
+  </script>
+</body>
+</html>
